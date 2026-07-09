@@ -13,7 +13,7 @@
     "build": "npm run build -w @howls/motion-server && npm run build -w @howls/game-racing",
     "start": "npm run start -w @howls/game-racing",
     "eslint": "npm run eslint -w @howls/game-racing",
-    "prepare": "husky install"
+    "prepare": "node -e \"process.env.CI||process.env.VERCEL?process.exit(0):require('child_process').execSync('husky install',{stdio:'inherit'})\""
   },
   "devDependencies": {
     "husky": "^7.0.4",
