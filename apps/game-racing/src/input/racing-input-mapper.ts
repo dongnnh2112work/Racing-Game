@@ -25,7 +25,7 @@ export const defaultRacingInputConfig: RacingInputConfig = {
   steeringInvert: false,
   handMaxAngleDeg: 90,
   wheelYawOffset: 0,
-  useMock: true,
+  useMock: process.env.NEXT_PUBLIC_USE_MOCK === 'true',
 }
 
 export function clampSteering(value: number): number {
@@ -79,7 +79,7 @@ export function mapMotionToRacingInput(
     }
   }
 
-  if (wheelFrame?.payload.type === 'orientation') {
+  if (wheelFrame?.payload.type === 'orientation' && wheelFrame.providerType !== 'mock' && !wheelFrame.deviceId.startsWith('mock')) {
     const steering = quaternionToSteering(wheelFrame.payload.quaternion, config.wheelYawOffset)
     return finalize(steering, 'wheel')
   }

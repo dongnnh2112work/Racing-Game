@@ -51,6 +51,17 @@ export function PairingScreen({ serverUrl, sessionId, onSessionReady, onCameraSl
     [onSessionReady],
   )
 
+  const startWithCameraOnly = () => {
+    const slots: SlotAssignments = {
+      steering_wheel: null,
+      left_hand: CAMERA_LEFT_ID,
+      right_hand: CAMERA_RIGHT_ID,
+    }
+    setSlots(slots)
+    setReady(true)
+    onSessionReady(slots)
+  }
+
   useEffect(() => {
     if (useMock) {
       const mockSlots: SlotAssignments = {
@@ -161,6 +172,12 @@ export function PairingScreen({ serverUrl, sessionId, onSessionReady, onCameraSl
       {isWebBluetoothSupported() && !isSafari() && (
         <button type="button" className="pairing-ble-btn" onClick={() => void pairBle()}>
           Pair Steering Wheel via Bluetooth (no WiFi)
+        </button>
+      )}
+
+      {!useMock && !ready && (
+        <button type="button" className="pairing-ble-btn" onClick={startWithCameraOnly}>
+          Start with Hand Tracking (Camera)
         </button>
       )}
 

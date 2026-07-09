@@ -6,11 +6,14 @@ const CY = WHEEL_SIZE / 2
 const RADIUS = 88
 
 export function VirtualSteeringWheel() {
+  const useMock = useStore((s) => s.racingInputConfig.useMock)
+  const handCount = useStore((s) => s.handTrackingHands)
   const activeInputSource = useStore((s) => s.activeInputSource)
   const handWheelRotation = useStore((s) => s.handWheelRotation)
   const steering = useStore((s) => s.steering)
 
-  if (activeInputSource !== 'hands') return null
+  const showHands = !useMock && (activeInputSource === 'hands' || handCount > 0)
+  if (!showHands) return null
 
   const rotationDeg = (-handWheelRotation * 180) / Math.PI
 
