@@ -15,7 +15,7 @@ export function VirtualSteeringWheel() {
   const showHands = !useMock && (activeInputSource === 'hands' || handCount > 0)
   if (!showHands) return null
 
-  const rotationDeg = (-handWheelRotation * 180) / Math.PI
+  const rotationDeg = (handWheelRotation * 180) / Math.PI
 
   return (
     <div className="virtual-steering-wheel" aria-hidden>

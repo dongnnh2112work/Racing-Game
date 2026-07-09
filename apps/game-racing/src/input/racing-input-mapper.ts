@@ -49,7 +49,7 @@ export function getTwoHandBarAngle(leftWrist: { x: number; y: number }, rightWri
 export function mapTwoHandBarToSteering(barAngleRad: number, maxAngleDeg: number, sensitivity: number): number {
   const maxAngle = (maxAngleDeg * Math.PI) / 180
   if (maxAngle <= 0) return 0
-  return clampSteering((-barAngleRad / maxAngle) * sensitivity)
+  return clampSteering((barAngleRad / maxAngle) * sensitivity)
 }
 
 export function quaternionToSteering(q: { w: number; x: number; y: number; z: number }, yawOffset = 0): number {

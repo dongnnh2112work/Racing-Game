@@ -122,7 +122,11 @@ export function HandPreview() {
   }
 
   const status =
-    handCount >= 2 && activeInputSource === 'hands'
+    cameraStatus?.state === 'error'
+      ? `• lỗi: ${cameraStatus.message}`
+      : cameraStatus?.state === 'connecting'
+      ? '• đang tải MediaPipe...'
+      : handCount >= 2 && activeInputSource === 'hands'
       ? '• 2 tay • tracking'
       : handCount >= 2
       ? '• 2 tay • giữ ngang'

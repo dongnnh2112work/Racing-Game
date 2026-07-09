@@ -16,62 +16,92 @@ export type WorkerHandResult = {
 let landmarker: HandLandmarker | null = null
 let lastVideoTime = -1
 
-self.onmessage = async (event: MessageEvent) => {
-  const { type, data } = event.data as { type: string; data?: unknown }
-
-  if (type === 'init') {
-    const vision = await FilesetResolver.forVisionTasks(WASM_PATH)
-    landmarker = await HandLandmarker.createFromOptions(vision, {
+async function createLandmarker(): Promise<HandLandmarker> {
+  const vision = await FilesetResolver.forVisionTasks(WASM_PATH)
+  try {
+    return await HandLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: MODEL_PATH, delegate: 'GPU' },
       runningMode: 'VIDEO',
       numHands: 2,
     })
-    self.postMessage({ type: 'ready' })
+  } catch {
+    return await HandLandmarker.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: MODEL_PATH, delegate: 'CPU' },
+      runningMode: 'VIDEO',
+      numHands: 2,
+    })
+  }
+}
+
+function assignHandsByPosition(allLandmarks: WorkerLandmark[][]): Pick<WorkerHandResult, 'left' | 'right'> {
+  if (allLandmarks.length === 0) return { left: null, right: null }
+  if (allLandmarks.length === 1) {
+    const wrist = allLandmarks[0][0]
+    if (wrist.x < 0.5) return { left: allLandmarks[0], right: null }
+    return { left: null, right: allLandmarks[0] }
+  }
+  const sorted = [...allLandmarks].sort((a, b) => a[0].x - b[0].x)
+  return { left: sorted[0], right: sorted[sorted.length - 1] }
+}
+
+self.onmessage = async (event: MessageEvent) => {
+  const { type, data } = event.data as { type: string; data?: unknown }
+
+  if (type === 'init') {
+    try {
+      landmarker = await createLandmarker()
+      self.postMessage({ type: 'ready' })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      self.postMessage({ type: 'error', message })
+    }
     return
   }
 
   if (type === 'detect' && landmarker) {
-    const { bitmap, timestamp, width, height } = data as {
-      bitmap: ImageBitmap
-      timestamp: number
-      width: number
-      height: number
-    }
-    if (timestamp === lastVideoTime) {
+    try {
+      const { bitmap, timestamp, width, height } = data as {
+        bitmap: ImageBitmap
+        timestamp: number
+        width: number
+        height: number
+      }
+      if (timestamp === lastVideoTime) {
+        bitmap.close()
+        return
+      }
+      lastVideoTime = timestamp
+
+      const offscreen = new OffscreenCanvas(width, height)
+      const ctx = offscreen.getContext('2d')
+      if (!ctx) {
+        bitmap.close()
+        return
+      }
+      ctx.drawImage(bitmap, 0, 0, width, height)
       bitmap.close()
-      return
+
+      const result = landmarker.detectForVideo(offscreen, timestamp)
+      const allLandmarks: WorkerLandmark[][] = []
+
+      for (let i = 0; i < result.landmarks.length; i++) {
+        allLandmarks.push(
+          result.landmarks[i].map((lm) => ({
+            x: lm.x,
+            y: lm.y,
+            z: lm.z,
+            visibility: lm.visibility,
+          })),
+        )
+      }
+
+      const { left, right } = assignHandsByPosition(allLandmarks)
+      const payload: WorkerHandResult = { left, right, allLandmarks }
+      self.postMessage({ type: 'result', data: payload })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      self.postMessage({ type: 'error', message })
     }
-    lastVideoTime = timestamp
-
-    const offscreen = new OffscreenCanvas(width, height)
-    const ctx = offscreen.getContext('2d')
-    if (!ctx) {
-      bitmap.close()
-      return
-    }
-    ctx.drawImage(bitmap, 0, 0, width, height)
-    bitmap.close()
-
-    const result = landmarker.detectForVideo(offscreen, timestamp)
-    let left: WorkerLandmark[] | null = null
-    let right: WorkerLandmark[] | null = null
-    const allLandmarks: WorkerLandmark[][] = []
-
-    for (let i = 0; i < result.landmarks.length; i++) {
-      const landmarks = result.landmarks[i].map((lm) => ({
-        x: lm.x,
-        y: lm.y,
-        z: lm.z,
-        visibility: lm.visibility,
-      }))
-      allLandmarks.push(landmarks)
-      const label = result.handednesses[i]?.[0]?.categoryName
-      if (label === 'Left') left = landmarks
-      if (label === 'Right') right = landmarks
-    }
-
-    const payload: WorkerHandResult = { left, right, allLandmarks }
-    self.postMessage({ type: 'result', data: payload })
   }
 }
 
