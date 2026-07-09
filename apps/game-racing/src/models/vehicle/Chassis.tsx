@@ -13,7 +13,7 @@ import type { BoxBufferGeometry, Group, Mesh, MeshStandardMaterial, PositionalAu
 import type { CollideBeginEvent, CollideEvent } from '@react-three/cannon'
 
 import { getState, setState, mutation, useStore } from '../../store'
-import { recoverVehicleToTrack } from '../../trackWaypoints'
+import { isMotionDriveMode, recoverVehicle } from '../../vehicleRecovery'
 
 import type { Camera, Controls } from '../../store'
 
@@ -94,13 +94,15 @@ export const Chassis = forwardRef<Group, PropsWithChildren<BoxProps>>(({ args = 
     (e: CollideBeginEvent) => {
       if (e.body.userData.trigger) return
       apiRef.current?.angularVelocity.set(0, 0, 0)
-      if (mutation.racingInput.source !== 'hands' || !mutation.hasMoved) return
+      if (!isMotionDriveMode(mutation.racingInput.source) || !mutation.hasMoved) return
       mutation.needsTrackRecovery = true
       const body = (ref as RefObject<Group>).current
       if (body && apiRef.current && mutation.speed < 1.5) {
         body.getWorldPosition(v)
-        recoverVehicleToTrack(apiRef.current, v.x, v.y, v.z)
+        recoverVehicle(apiRef.current, v.x, v.z)
         mutation.needsTrackRecovery = false
+        mutation.stuckPhase = 'normal'
+        mutation.reverseTimer = 0
       }
     },
     [ref],

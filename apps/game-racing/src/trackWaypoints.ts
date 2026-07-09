@@ -57,9 +57,11 @@ export function getNearestTrackRecovery(px: number, pz: number): TrackRecovery {
   return { x: bestX, z: bestZ, yaw: bestYaw, segmentIndex: bestIndex }
 }
 
-export function recoverVehicleToTrack(api: PublicApi, px: number, py: number, pz: number): void {
+export const recoveryHeight = 0.75
+
+export function recoverVehicleToTrack(api: PublicApi, px: number, _py: number, pz: number): void {
   const recovery = getNearestTrackRecovery(px, pz)
-  api.position.set(recovery.x, py, recovery.z)
+  api.position.set(recovery.x, recoveryHeight, recovery.z)
   api.rotation.set(0, recovery.yaw, 0)
   api.velocity.set(0, 0, 0)
   api.angularVelocity.set(0, 0, 0)

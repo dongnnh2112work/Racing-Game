@@ -9,6 +9,7 @@ import type { GetState, SetState, StateSelector } from 'zustand'
 
 import { keys } from './keys'
 import { defaultRacingInputConfig, type RacingInput, type RacingInputConfig } from './input/racing-input-mapper'
+import type { StuckPhase } from './vehicleRecovery'
 
 export const angularVelocity = [0, 0, 0] as const
 export const cameras = ['DEFAULT', 'FIRST_PERSON', 'BIRD_EYE'] as const
@@ -203,6 +204,9 @@ const useStoreImpl = create<IState>((set: SetState<IState>, get: GetState<IState
       mutation.boost = maxBoost
       mutation.hasMoved = false
       mutation.needsTrackRecovery = false
+      mutation.stuckPhase = 'normal'
+      mutation.reverseTimer = 0
+      mutation.overturnedTimer = 0
 
       set((state) => {
         state.api?.angularVelocity.set(...angularVelocity)
@@ -250,10 +254,13 @@ interface Mutation {
   boost: number
   hasMoved: boolean
   needsTrackRecovery: boolean
+  overturnedTimer: number
   racingInput: RacingInput
+  reverseTimer: number
   rpmTarget: number
   sliding: boolean
   speed: number
+  stuckPhase: StuckPhase
   velocity: [number, number, number]
 }
 
@@ -262,10 +269,13 @@ export const mutation: Mutation = {
   boost: maxBoost,
   hasMoved: false,
   needsTrackRecovery: false,
+  overturnedTimer: 0,
   racingInput: { steering: 0, throttle: 0, source: 'none', handWheelRotation: 0, handCount: 0 },
+  reverseTimer: 0,
   rpmTarget: 0,
   sliding: false,
   speed: 0,
+  stuckPhase: 'normal',
   velocity: [0, 0, 0],
 }
 

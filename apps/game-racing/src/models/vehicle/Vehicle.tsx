@@ -9,7 +9,7 @@ import type { BoxProps, RaycastVehicleProps, WheelInfoOptions } from '@react-thr
 import { AccelerateAudio, BoostAudio, Boost, BrakeAudio, Dust, EngineAudio, HonkAudio, Skid, Cameras } from '../../effects'
 import { getState, mutation, useStore } from '../../store'
 import { useToggle } from '../../useToggle'
-import { recoverVehicleToTrack } from '../../trackWaypoints'
+import { isMotionDriveMode, isVehicleOverturned, recoverVehicle } from '../../vehicleRecovery'
 
 import { Chassis } from './Chassis'
 import { Wheel } from './Wheel'
@@ -68,7 +68,9 @@ export function Vehicle({ angularVelocity, children, position, rotation }: Vehic
   let stuckTimer = 0
 
   const STUCK_SPEED = 1.5
-  const STUCK_DELAY = 0.3
+  const STUCK_DELAY = 0.4
+  const REVERSE_DURATION = 1.0
+  const OVERTURNED_DELAY = 0.5
 
   useFrame((state, delta) => {
     camera = getState().camera
@@ -82,20 +84,30 @@ export function Vehicle({ angularVelocity, children, position, rotation }: Vehic
       mutation.boost = Math.max(mutation.boost - 1, 0)
     }
 
+    const motionMode = isMotionDriveMode(mutation.racingInput.source)
     const handMode = mutation.racingInput.source === 'hands'
-    const cruiseSpeed = maxSpeed * 0.2
-    const speedCap = handMode ? cruiseSpeed : maxSpeed
+    const throttle = mutation.racingInput.throttle
+    const cruiseSpeed = maxSpeed * (handMode ? throttle : 1)
+    const speedCap = motionMode && handMode ? cruiseSpeed : maxSpeed
 
     let targetEngine = 0
-    if (handMode && !editor) {
-      if (speed < cruiseSpeed * 0.6) {
-        targetEngine = force * -0.55
-      } else if (speed < cruiseSpeed) {
-        targetEngine = force * -0.35
-      } else if (speed > cruiseSpeed * 1.02) {
-        targetEngine = force * 0.35
-      } else {
-        targetEngine = force * -0.2
+    if (motionMode && !editor) {
+      if (mutation.stuckPhase === 'reversing') {
+        targetEngine = force * 0.45
+      } else if (mutation.stuckPhase !== 'recovering') {
+        if (handMode) {
+          if (speed < cruiseSpeed * 0.6) {
+            targetEngine = force * -throttle * 2.75
+          } else if (speed < cruiseSpeed) {
+            targetEngine = force * -throttle * 1.75
+          } else if (speed > cruiseSpeed * 1.02) {
+            targetEngine = force * throttle * 1.75
+          } else {
+            targetEngine = force * -throttle
+          }
+        } else {
+          targetEngine = force * -throttle
+        }
       }
     } else {
       targetEngine = controls.forward || controls.backward ? force * (controls.forward && !controls.backward ? (isBoosting ? -1.5 : -1) : 1) : 0
@@ -105,30 +117,64 @@ export function Vehicle({ angularVelocity, children, position, rotation }: Vehic
     steeringValue = lerp(steeringValue, getState().steering * steer, delta * 20)
     for (i = 2; i < 4; i++) api.applyEngineForce(speed < speedCap ? engineValue : 0, i)
     for (i = 0; i < 2; i++) api.setSteeringValue(steeringValue, i)
-    const braking = handMode ? false : controls.brake
+    const braking = motionMode ? false : controls.brake
     for (i = 2; i < 4; i++) api.setBrake(braking ? (controls.forward ? maxBrake / 1.5 : maxBrake) : 0, i)
 
-    if (handMode && !editor && chassisBody.current) {
+    if (motionMode && !editor && chassisBody.current) {
       chassisBody.current.getWorldPosition(worldPos)
+      chassisBody.current.getWorldQuaternion(worldQuat)
+
+      const overturned = isVehicleOverturned(worldQuat)
+      if (overturned) {
+        mutation.overturnedTimer += delta
+        mutation.needsTrackRecovery = true
+      } else {
+        mutation.overturnedTimer = 0
+      }
+
       if (speed > STUCK_SPEED) {
         mutation.hasMoved = true
-        stuckTimer = 0
-        mutation.needsTrackRecovery = false
-      } else if (mutation.hasMoved) {
+        if (mutation.stuckPhase === 'normal') {
+          stuckTimer = 0
+          if (!overturned) mutation.needsTrackRecovery = false
+        }
+      } else if (mutation.hasMoved && mutation.stuckPhase === 'normal') {
         stuckTimer += delta
       }
-      const shouldRecover = mutation.hasMoved && speed < STUCK_SPEED && (mutation.needsTrackRecovery || stuckTimer >= STUCK_DELAY)
+
+      if (mutation.stuckPhase === 'normal') {
+        const shouldStartReverse = mutation.hasMoved && speed < STUCK_SPEED && (mutation.needsTrackRecovery || stuckTimer >= STUCK_DELAY) && !overturned
+        if (shouldStartReverse) {
+          mutation.stuckPhase = 'reversing'
+          mutation.reverseTimer = 0
+          stuckTimer = 0
+        }
+      } else if (mutation.stuckPhase === 'reversing') {
+        mutation.reverseTimer += delta
+        if (mutation.reverseTimer >= REVERSE_DURATION) {
+          mutation.stuckPhase = speed < STUCK_SPEED ? 'recovering' : 'normal'
+          mutation.reverseTimer = 0
+          if (speed >= STUCK_SPEED) mutation.needsTrackRecovery = false
+        }
+      }
+
+      const shouldRecover = mutation.stuckPhase === 'recovering' || (overturned && mutation.overturnedTimer >= OVERTURNED_DELAY)
       if (shouldRecover) {
         const chassisApi = getState().api
         if (chassisApi) {
-          recoverVehicleToTrack(chassisApi, worldPos.x, worldPos.y, worldPos.z)
+          recoverVehicle(chassisApi, worldPos.x, worldPos.z)
         }
-        stuckTimer = 0
+        mutation.stuckPhase = 'normal'
         mutation.needsTrackRecovery = false
+        mutation.overturnedTimer = 0
+        mutation.reverseTimer = 0
+        stuckTimer = 0
       }
-    } else {
+    } else if (!motionMode) {
       stuckTimer = 0
-      mutation.needsTrackRecovery = false
+      mutation.stuckPhase = 'normal'
+      mutation.reverseTimer = 0
+      mutation.overturnedTimer = 0
     }
 
     if (!editor && chassisBody.current) {
@@ -167,10 +213,15 @@ export function Vehicle({ angularVelocity, children, position, rotation }: Vehic
       }
     }
 
-    // lean chassis
-    chassisBody.current!.children[0].rotation.z = MathUtils.lerp(chassisBody.current!.children[0].rotation.z, (-steeringValue * speed) / 200, delta * 4)
+    // lean chassis — dampen visual lean at low speed in motion mode
+    const leanScale = motionMode && speed < 2 ? 0.35 : 1
+    chassisBody.current!.children[0].rotation.z = MathUtils.lerp(
+      chassisBody.current!.children[0].rotation.z,
+      ((-steeringValue * speed) / 200) * leanScale,
+      delta * 4,
+    )
 
-    if (!handMode) {
+    if (!motionMode) {
       // Camera sway
       swaySpeed = isBoosting ? 60 : 30
       swayTarget = isBoosting ? (speed / maxSpeed) * 8 : (speed / maxSpeed) * 2
